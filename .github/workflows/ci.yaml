@@ -1,4 +1,4 @@
-name: Build Node Application-Service
+name: Build — application-service
 
 on:
   push:
@@ -12,28 +12,63 @@ env:
 
 jobs:
   build:
+    name: Build application-service
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x]
+
     steps:
-      - name: Checkout Repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Node 20
+      - name: Verify service folder exists
+        run: |
+          if [ ! -d "${{ env.SERVICE_PATH }}" ]; then
+            echo "Directory ${{ env.SERVICE_PATH }} not found"
+            exit 1
+          fi
+
+      - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: ${{ env.SERVICE_PATH }}/package-lock.json
+          node-version: ${{ matrix.node-version }}
+          # intentionally NOT using setup-node's cache here to avoid unresolved path errors
 
-      - name: Install Dependencies
+      - name: Cache node_modules and npm cache for service
+        uses: actions/cache@v4
+        with:
+          path: |
+            application-service/src/node_modules
+            application-service/node_modules
+            ~/.npm
+          # Use the lockfile hash if present; if missing, fall back to the run id so caching still works
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-appsvc-${{ hashFiles('application-service/src/package-lock.json') || github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node-version }}-appsvc-
+
+      - name: Install dependencies
         working-directory: ${{ env.SERVICE_PATH }}
         run: |
+          set -eux
           if [ -f package-lock.json ]; then
             npm ci
+          elif [ -f yarn.lock ]; then
+            if command -v yarn >/dev/null 2>&1; then
+              yarn install --frozen-lockfile
+            else
+              npm install -g yarn
+              yarn install --frozen-lockfile
+            fi
           else
             npm install
           fi
 
-      - name: Run Tests (if present)
+      - name: Run lint (if present)
+        working-directory: ${{ env.SERVICE_PATH }}
+        run: npm run lint --if-present
+
+      - name: Run tests (if present)
         working-directory: ${{ env.SERVICE_PATH }}
         run: npm test --if-present
 
@@ -41,11 +76,13 @@ jobs:
         working-directory: ${{ env.SERVICE_PATH }}
         run: npm run build --if-present
 
-      - name: Upload Build Artifacts
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: application-service-build
           path: |
             application-service/src/dist
             application-service/src/build
+            application-service/dist
+            application-service/build
           if-no-files-found: ignore
