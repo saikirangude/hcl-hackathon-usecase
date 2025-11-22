@@ -1,4 +1,4 @@
-name: Build — application-service
+name: Build Node Application-Service
 
 on:
   push:
@@ -8,87 +8,44 @@ on:
   workflow_dispatch:
 
 env:
-  SERVICE_DIR: application-service/src
+  SERVICE_PATH: application-service/src
 
 jobs:
   build:
-    name: Build application-service
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x]
-
     steps:
-      - name: Checkout repository
+      - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Verify service folder exists
-        run: |
-          if [ ! -d "${{ env.SERVICE_DIR }}" ]; then
-            echo "Directory ${{ env.SERVICE_DIR }} not found"
-            exit 1
-          fi
-
-      - name: Use Node.js ${{ matrix.node-version }}
+      - name: Use Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-          # remove cache: here because we'll manage caching explicitly with actions/cache
-          # cache: 'npm'    <-- removed
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: ${{ env.SERVICE_PATH }}/package-lock.json
 
-      # Cache node_modules + npm cache for this service (robust when lockfile path is nonstandard)
-      - name: Cache node modules and npm cache
-        uses: actions/cache@v4
-        with:
-          # cache node_modules located in service and npm cache
-          path: |
-            application-service/node_modules
-            application-service/src/node_modules
-            ~/.npm
-          # Use the service lockfile hash if present; if no lockfile exists, the key still differs per node-version/run
-          key: ${{ runner.os }}-node-${{ matrix.node-version }}-appsvc-${{ hashFiles('application-service/src/**/package-lock.json') || hashFiles('application-service/**/package-lock.json') || github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ matrix.node-version }}-appsvc-
-
-      - name: Install dependencies
-        working-directory: ${{ env.SERVICE_DIR }}
+      - name: Install Dependencies
+        working-directory: ${{ env.SERVICE_PATH }}
         run: |
-          set -eux
-          # prefer npm ci if lockfile present; otherwise fall back to npm install or yarn
           if [ -f package-lock.json ]; then
             npm ci
-          elif [ -f yarn.lock ]; then
-            if command -v yarn >/dev/null 2>&1; then
-              yarn install --frozen-lockfile
-            else
-              npm install -g yarn
-              yarn install --frozen-lockfile
-            fi
           else
             npm install
           fi
 
-      - name: Run lint (if present)
-        working-directory: ${{ env.SERVICE_DIR }}
-        run: npm run lint --if-present
-
-      - name: Run tests (if present)
-        working-directory: ${{ env.SERVICE_DIR }}
-        run: npm run test --if-present
+      - name: Run Tests (if present)
+        working-directory: ${{ env.SERVICE_PATH }}
+        run: npm test --if-present
 
       - name: Build (if present)
-        working-directory: ${{ env.SERVICE_DIR }}
+        working-directory: ${{ env.SERVICE_PATH }}
         run: npm run build --if-present
 
-      - name: Archive build outputs
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: application-service-build-${{ matrix.node-version }}-${{ github.run_number }}
+          name: application-service-build
           path: |
             application-service/src/dist
             application-service/src/build
-            application-service/dist
-            application-service/build
-            application-service/out
-            application-service/src/out
           if-no-files-found: ignore
