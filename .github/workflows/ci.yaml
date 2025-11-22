@@ -1,4 +1,4 @@
-name: Build & Run — application-service
+name: Build & Test — application-service
 
 on:
   push:
@@ -8,11 +8,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-run:
+  build:
+    name: Build application-service
     runs-on: ubuntu-latest
     strategy:
       matrix:
         node-version: [20.x]
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,6 +33,7 @@ jobs:
           done
           if [ -z "$FOUND" ]; then
             echo "No package.json found in: ${CANDIDATES[*]}"
+            echo "Repository listing (application-service):"
             ls -R application-service || true
             exit 1
           fi
@@ -44,13 +47,13 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Cache node_modules and npm cache
+      - name: Restore / Cache node_modules and npm cache
         uses: actions/cache@v4
         with:
           path: |
             ${{ steps.find.outputs.workdir }}/node_modules
             ~/.npm
-          key: ${{ runner.os }}-node-${{ matrix.node-version }}-appsvc-${{ hashFiles(format('{0}/package-lock.json', steps.find.outputs.workdir)) || github.run_id }}
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-appsvc-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-node-${{ matrix.node-version }}-appsvc-
 
@@ -71,6 +74,10 @@ jobs:
             npm install
           fi
 
+      - name: Run lint (if present)
+        working-directory: ${{ steps.find.outputs.workdir }}
+        run: npm run lint --if-present
+
       - name: Run tests (if present)
         working-directory: ${{ steps.find.outputs.workdir }}
         run: npm test --if-present
@@ -79,12 +86,11 @@ jobs:
         working-directory: ${{ steps.find.outputs.workdir }}
         run: npm run build --if-present
 
-      - name: Optional: Start app briefly (smoke run)
-        if: ${{ always() }}
-        working-directory: ${{ steps.find.outputs.workdir }}
-        run: |
-          # This runs your app for a short smoke-test (background), useful for simple checks.
-          # If your app binds to a port, you can curl it to verify. Be careful for long-running apps.
-          node index.js &
-          sleep 2
-          echo "If your app exposes HTTP on localhost, you could curl it here."
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-service-build
+          path: |
+            ${{ steps.find.outputs.workdir }}/dist
+            ${{ steps.find.outputs.workdir }}/build
+          if-no-files-found: ignore
