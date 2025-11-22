@@ -1,0 +1,83 @@
+name: Build — application-service
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  SERVICE_DIR: application-service/src
+
+jobs:
+  build:
+    name: Build application-service
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify service folder exists
+        run: |
+          if [ ! -d "${{ env.SERVICE_DIR }}" ]; then
+            echo "Directory ${{ env.SERVICE_DIR }} not found"
+            exit 1
+          fi
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: |
+            application-service/package-lock.json
+            application-service/src/package-lock.json
+            application-service/yarn.lock
+            application-service/src/yarn.lock
+
+      - name: Install dependencies
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: |
+          # prefer npm ci if lockfile present; otherwise fall back to npm install
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f yarn.lock ]; then
+            # if yarn available, use it; otherwise install yarn and use it
+            if command -v yarn >/dev/null 2>&1; then
+              yarn install --frozen-lockfile
+            else
+              npm install -g yarn
+              yarn install --frozen-lockfile
+            fi
+          else
+            npm install
+
+      - name: Run lint (if present)
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: npm run lint --if-present
+
+      - name: Run tests (if present)
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: npm run test --if-present
+
+      - name: Build (if present)
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: npm run build --if-present
+
+      - name: Archive build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-service-build-${{ matrix.node-version }}-${{ github.run_number }}
+          path: |
+            application-service/dist
+            application-service/build
+            application-service/out
+            application-service/src/dist
+            application-service/src/build
+            application-service/src/out
+          if-no-files-found: ignore
