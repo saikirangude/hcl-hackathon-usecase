@@ -33,21 +33,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'npm'
-          cache-dependency-path: |
-            application-service/package-lock.json
-            application-service/src/package-lock.json
-            application-service/yarn.lock
-            application-service/src/yarn.lock
+          # remove cache: here because we'll manage caching explicitly with actions/cache
+          # cache: 'npm'    <-- removed
+
+      # Cache node_modules + npm cache for this service (robust when lockfile path is nonstandard)
+      - name: Cache node modules and npm cache
+        uses: actions/cache@v4
+        with:
+          # cache node_modules located in service and npm cache
+          path: |
+            application-service/node_modules
+            application-service/src/node_modules
+            ~/.npm
+          # Use the service lockfile hash if present; if no lockfile exists, the key still differs per node-version/run
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-appsvc-${{ hashFiles('application-service/src/**/package-lock.json') || hashFiles('application-service/**/package-lock.json') || github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node-version }}-appsvc-
 
       - name: Install dependencies
         working-directory: ${{ env.SERVICE_DIR }}
         run: |
-          # prefer npm ci if lockfile present; otherwise fall back to npm install
+          set -eux
+          # prefer npm ci if lockfile present; otherwise fall back to npm install or yarn
           if [ -f package-lock.json ]; then
             npm ci
           elif [ -f yarn.lock ]; then
-            # if yarn available, use it; otherwise install yarn and use it
             if command -v yarn >/dev/null 2>&1; then
               yarn install --frozen-lockfile
             else
@@ -56,6 +66,7 @@ jobs:
             fi
           else
             npm install
+          fi
 
       - name: Run lint (if present)
         working-directory: ${{ env.SERVICE_DIR }}
@@ -74,10 +85,10 @@ jobs:
         with:
           name: application-service-build-${{ matrix.node-version }}-${{ github.run_number }}
           path: |
+            application-service/src/dist
+            application-service/src/build
             application-service/dist
             application-service/build
             application-service/out
-            application-service/src/dist
-            application-service/src/build
             application-service/src/out
           if-no-files-found: ignore
